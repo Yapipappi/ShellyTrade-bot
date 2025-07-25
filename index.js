@@ -1,114 +1,70 @@
+// =========================
+// ShellyTradeBot - index.js
+// =========================
+
+// Telegram & Finnhub
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
+const express = require('express');
+const bodyParser = require('body-parser');
 
-// ==== Env Vars ====
-const token        = process.env.TELEGRAM_TOKEN;
-const chatId       = process.env.TELEGRAM_CHAT_ID;   // optional, für Start-Ping
-const botUsername  = process.env.BOT_USERNAME || 'ShellyTradeBot';
-const finnhubKey   = process.env.FINNHUB_KEY;
+// Bot-Konfiguration aus Environment Variablen
+const token = process.env.TELEGRAM_TOKEN; // Telegram Bot Token
+const chatId = process.env.TELEGRAM_CHAT_ID; // Dein Chat ID
+const botUsername = process.env.BOT_USERNAME; // Bot Name
+const finnhubToken = process.env.FINNHUB_TOKEN; // Finnhub API-Key
 
-if (!token) {
-  console.error('❌ TELEGRAM_TOKEN fehlt!');
-  process.exit(1);
-}
-if (!finnhubKey) {
-  console.warn('⚠️ FINNHUB_KEY fehlt – /kurs wird nicht funktionieren.');
-}
-
+// Telegram Bot initialisieren
 const bot = new TelegramBot(token, { polling: true });
 
-// ---------- Helper ----------
-function fmt(n, digits = 2) {
-  if (typeof n !== 'number' || isNaN(n)) return '-';
-  return n.toLocaleString('de-DE', { minimumFractionDigits: digits, maximumFractionDigits: digits });
-}
+// Express Webserver starten (wichtig für Render)
+const app = express();
+app.use(bodyParser.json());
 
-async function fetchQuote(symbol) {
-  const url = `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(symbol)}&token=${finnhubKey}`;
-  const { data } = await axios.get(url, { timeout: 8000 });
-  // data: { c, h, l, o, pc, t }
-  if (!data || typeof data.c !== 'number' || data.c === 0) {
-    throw new Error('Keine oder ungültige Daten');
-  }
-  return data;
-}
+// Test-Route für Render (einfacher Ping)
+app.get('/', (req, res) => {
+  res.send('ShellyTradeBot ist aktiv!');
+});
 
-// ---------- Commands ----------
+// ===================
+// Telegram Befehle
+// ===================
+
+// Start-Kommando
 bot.onText(/\/start/, (msg) => {
-  bot.sendMessage(
-    msg.chat.id,
-    `🚀 ${botUsername} ist jetzt live, mein Herz!\n\nTippe */hilfe*, */status* oder */kurs NVDA*.`,
-    { parse_mode: 'Markdown' }
-  );
+  bot.sendMessage(msg.chat.id, `🚀 ${botUsername} ist jetzt live, mein Herz!`);
 });
 
-bot.onText(/\/hilfe/, (msg) => {
-  const help =
-`📘 *Hilfe – ${botUsername}*
-  
-/ start   – Begrüßung
-/ status  – Kurzer Gesundheitscheck
-/ kurs TICKER – Holt den aktuellen Kurs (z. B. */kurs NVDA*, */kurs TSLA*, */kurs AAPL*)
-
-Weitere Module (SATRA, Alerts, DCA, Watchlist) hängen wir gleich an. 💜`;
-  bot.sendMessage(msg.chat.id, help, { parse_mode: 'Markdown' });
-});
-
-bot.onText(/\/status/, (msg) => {
-  bot.sendMessage(msg.chat.id, `✅ ${botUsername} läuft stabil. Finnhub-Key: ${finnhubKey ? '✔️ gesetzt' : '❌ fehlt'}`);
-});
-
-// /kurs <ticker>
-bot.onText(/\/kurs(?:@\w+)?\s+([A-Za-z0-9\.\-:]+)/i, async (msg, match) => {
-  const chatId = msg.chat.id;
-  const ticker = (match && match[1]) ? match[1].toUpperCase() : null;
-
-  if (!ticker) {
-    return bot.sendMessage(chatId, '❗ Bitte benutze: `/kurs TICKER` (z. B. `/kurs NVDA`)', { parse_mode: 'Markdown' });
-  }
-  if (!finnhubKey) {
-    return bot.sendMessage(chatId, '❌ Es ist kein FINNHUB_KEY gesetzt – bitte in Render hinzufügen.');
-  }
-
-  bot.sendMessage(chatId, `📡 Hole Kursdaten für *${ticker}*…`, { parse_mode: 'Markdown' });
-
+// Kurs-Kommando
+bot.onText(/\/kurs (.+)/, async (msg, match) => {
+  const symbol = match[1].toUpperCase(); // z.B. AAPL oder TSLA
   try {
-    const q = await fetchQuote(ticker);
-    const changeAbs = q.c - q.pc;
-    const changePct = q.pc ? (changeAbs / q.pc) * 100 : 0;
-    const when = q.t ? new Date(q.t * 1000).toLocaleString('de-DE') : '-';
-
-    const msgText =
-`📈 *${ticker}*
-Aktuell: *${fmt(q.c)}*
-Vortag:  ${fmt(q.pc)}
-Δ:       ${changeAbs >= 0 ? '🟢' : '🔴'} ${fmt(changeAbs)} (${fmt(changePct)}%)
-High:    ${fmt(q.h)}
-Low:     ${fmt(q.l)}
-Open:    ${fmt(q.o)}
-Zeit:    ${when}`;
-
-    bot.sendMessage(chatId, msgText, { parse_mode: 'Markdown' });
-  } catch (err) {
-    console.error(err);
-    bot.sendMessage(chatId, `❌ Konnte Kurs für *${ticker}* nicht abrufen. (${err.message})`, { parse_mode: 'Markdown' });
+    const response = await axios.get(`https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${finnhubToken}`);
+    const price = response.data.c;
+    bot.sendMessage(msg.chat.id, `📊 Aktueller Kurs von ${symbol}: ${price} USD`);
+  } catch (error) {
+    console.error(error);
+    bot.sendMessage(msg.chat.id, `❌ Konnte den Kurs von ${symbol} nicht abrufen.`);
   }
 });
 
-// ---------- Simple free-text replies (optional) ----------
+// Nachricht mit dem Wort 'kurs' (ohne Symbol)
 bot.on('message', (msg) => {
-  // Kommandos ignorieren
-  if (!msg.text || msg.text.startsWith('/')) return;
-
   const text = msg.text.toLowerCase();
-  if (text.includes('hey') || text.includes('hallo')) {
-    bot.sendMessage(msg.chat.id, '💜 Hey mein Herz! Schreib */hilfe*, wenn du etwas brauchst.');
-  } else if (text.includes('kurs')) {
-    bot.sendMessage(msg.chat.id, '📈 Nutze bitte das Kommando: `/kurs TICKER` (z. B. `/kurs NVDA`)', { parse_mode: 'Markdown' });
+  if (text === 'kurs') {
+    bot.sendMessage(msg.chat.id, 'Bitte nutze den Befehl: /kurs SYMBOL (z.B. /kurs TSLA)');
   }
 });
 
-// ---------- Startup ping ----------
+// ===================
+// Mini-Webserver für Render
+// ===================
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Server läuft auf Port ${PORT}`);
+});
+
+// Info beim Start
 if (chatId) {
-  bot.sendMessage(chatId, `✅ ${botUsername} wurde erfolgreich gestartet und ist einsatzbereit!`);
+  bot.sendMessage(chatId, `🤖 ${botUsername} wurde erfolgreich gestartet und ist einsatzbereit!`);
 }
