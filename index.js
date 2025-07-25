@@ -1,32 +1,26 @@
 const TelegramBot = require('node-telegram-bot-api');
-const express = require('express');
-const bodyParser = require('body-parser');
 
-const token = process.env.TELEGRAM_TOKEN;  // Dein Bot Token
+// Bot-Konfiguration aus Environment Variablen
+const token = process.env.TELEGRAM_TOKEN;
+const chatId = process.env.TELEGRAM_CHAT_ID;
+const botUsername = process.env.BOT_USERNAME;
+
 const bot = new TelegramBot(token, { polling: true });
 
-// Express Webserver starten (für Render Webhook Ping)
-const app = express();
-app.use(bodyParser.json());
-
-app.get('/', (req, res) => {
-  res.send('ShellyTradeBot läuft! 🚀');
-});
-
-// Bot Befehle
+// Startkommando
 bot.onText(/\/start/, (msg) => {
-  bot.sendMessage(msg.chat.id, '🚀 ShellyTradeBot ist live, mein Herz!');
+    bot.sendMessage(msg.chat.id, `🚀 ${botUsername} ist jetzt live, mein Herz! 💖`);
 });
 
+// Beispielantwort für Nachrichten mit dem Wort 'kurs'
 bot.on('message', (msg) => {
-  const text = msg.text.toLowerCase();
-
-  if (text.includes('kurs')) {
-    bot.sendMessage(msg.chat.id, '📈 Kursdaten kommen bald live – bitte hab etwas Geduld!');
-  } else if (text.includes('hallo')) {
-    bot.sendMessage(msg.chat.id, `Hey ${msg.from.first_name}, wie geht's dir?`);
-  }
+    const text = msg.text.toLowerCase();
+    if (text.includes('kurs')) {
+        bot.sendMessage(msg.chat.id, "📈 Kursdaten kommen bald live – bitte etwas Geduld! 🙌");
+    }
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`ShellyTradeBot läuft auf Port ${PORT}`));
+// Testnachricht beim Start
+if (chatId) {
+    bot.sendMessage(chatId, `✅ ${botUsername} wurde erfolgreich gestartet und ist einsatzbereit!`);
+}
